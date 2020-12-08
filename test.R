@@ -1,2 +1,0 @@
-fd <- airquality
-head(fd)
