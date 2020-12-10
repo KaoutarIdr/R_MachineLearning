@@ -1,0 +1,146 @@
+---
+title: "Machine learning assignment"
+author: "Oleksii Yehorchenkov"
+date: "30 11 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(foreach)
+library(iterators)
+library(parallel)
+library(doParallel)
+library(corrplot)
+```
+
+This assignment is based on materials from Coursera course [Practical machine learning](https://www.coursera.org/learn/practical-machine-learning/home/welcome)
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+## Data
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+## What you should do
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+Also you should explain how do you deal with NA's values and investigate correlation.
+
+You repository for this assignment should consist of R markdown file, compiled html file and prediction.csv file with data from pml-testing.csv and 'classe' column with predictions for 20 observation.
+
+## Download and load the training set
+``` {r}
+download.file('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv', 'pml-training.csv')
+
+training_set <- read.csv('pml-training.csv')
+dim(training_set)
+head(training_set)
+
+``` 
+## Download and load the test set
+``` {r}
+
+download.file('https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv','pml-test.csv' )
+test_set <- read.csv('pml-test.csv')
+head(test_set)
+```
+
+## Splitting the training set for cross validation into 75% training and 25% test
+``` {r}
+inTrain <- createDataPartition(y=training_set$classe, p=0.75, list=FALSE)
+training <- training_set[inTrain, ] 
+testing <- training_set[-inTrain, ]
+dim(training); dim(testing)
+
+``` 
+## Remove variables that have a large number of NA values, near-zero-variance (NZV) variables and also the five variables that are only used for identification
+``` {r}
+#remove near-zero-variance variables
+NearZeroV <- nearZeroVar(training)
+training <- training[ ,-NearZeroV]
+testing <- testing[ ,-NearZeroV]
+
+dim(training); dim(testing)
+
+#remove variables that have a large number of NA values
+na_var <- sapply(training, function(x) mean(is.na(x))) > 0.95
+training <- training[ , na_var == FALSE]
+testing <- testing[ , na_var == FALSE]
+
+dim(training); dim(testing)
+
+#remove variables that are only used for identification
+training <- training[ , -(1:5)]
+testing <- testing[ , -(1:5)]
+
+dim(training); dim(testing)
+
+
+``` 
+
+## Examine the correlation of the variables through a correlation plot
+
+``` {r}
+corrMat <- cor(training[,-54])
+corrplot(corrMat, method = "color", type = "lower", tl.cex = 0.8, tl.col = rgb(0,0,0))
+``` 
+
+In the plot the darker gradients mean a high correlation. We can perform a principal component analysis if we wanted to reduce the correlations, but the number of correlations is small so we'll not gonna use PCA.
+
+## We will use Decision Tree to train the model 
+``` {r}
+set.seed(13908)
+#train the model with the training data
+dt_model <- rpart(classe ~ ., data = training, method = "class")
+#build the tree
+fancyRpartPlot(dt_model)
+#predict using the decision tree model and the test set from cross validation splitting
+dt_predict <- predict(dt_model, testing, type = "class")
+#create the confusion matrix to check the accuracy
+conf_mat_dt <- confusionMatrix(dt_predict, as.factor(testing$classe))
+conf_mat_dt
+
+``` 
+#Now we use Random Forest
+
+``` {r}
+
+class <- training$classe
+data_t  <- training[-ncol(training)]
+# training the model using parallel processing
+registerDoParallel()
+rf_model <- train(data, class, method="parRF", tuneGrid=data.frame(mtry=3), trControl=trainControl(method="none"))
+#predict the test set from cross validation with the random forest model
+rf_predict <- predict(rf_model, testing)
+conf_mat_rf <- confusionMatrix(rf_predict,as.factor(testing$classe))
+#check the accuracy
+conf_mat_rf
+```
+
+
+## Predict Testset
+the predictive accuracy of the two models evaluated is as follows:
+Decision Tree Model: Accuracy 73,35%
+Random Forest Model: Accuracy 99,94%
+So the Random Forest model is the best to make predictions on the test_set
+``` {r}
+predictions_test_set <- predict(rf_model, test_set)
+predictions_test_set
+write.csv(predictions_test_set,"~/Downloads/predictions.csv", row.names = FALSE)
+``` 
